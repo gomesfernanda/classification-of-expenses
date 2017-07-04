@@ -1,6 +1,11 @@
 import argparse
 import logging
 import sys
+import time
+import os
+from shutil import copyfile
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 import numpy as np
 import pandas as pd
@@ -13,8 +18,7 @@ from sklearn.metrics import confusion_matrix
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", help="XLSX data source", required=True)
-    parser.add_argument("-o", "--output", help="Path to the trained model", required=True)
-    parser.add_argument("-p", "--predictfile", help="Path to the prediction file", required=True)
+    parser.add_argument("-v", "--validationfile", help="Path to the validation file", required=True)
     parser.add_argument("--rows-to-skip", default=10, type=int)
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--validation", default=0.15, type=float)
@@ -25,38 +29,38 @@ def setup():
 
 def loadData(fileName, rowsToSkip):
     dfFunc = pd.read_excel(fileName, skiprows=rowsToSkip, parse_cols="B,F,G,K", parse_dates=['Fecha Operación'])
-    datescol = pd.Series(dfFunc['Fecha Operación'])
+    datescol = pd.Series(dfFunc["Fecha Operación"])
     datesActualDay = datescol.dt.day
     datesTotalDays = datescol.dt.daysinmonth
     datesRel = datesActualDay / datesTotalDays
-    dfFunc['FechaRel'] = datesRel
-    dfFunc = dfFunc.dropna(axis=0, how='any')
+    dfFunc["FechaRel"] = datesRel
+    dfFunc = dfFunc.dropna(axis=0, how="any")
     return dfFunc
 
 def turnColumns(dfTrain, dfPred):
     unique_chars = []
-    dfTrain['Concepto'] = dfTrain['Concepto'].str.upper()
-    dfPred['Concepto'] = dfPred['Concepto'].str.upper()
+    dfTrain["Concepto"] = dfTrain["Concepto"].str.upper()
+    dfPred["Concepto"] = dfPred["Concepto"].str.upper()
 
-    for row in range(0, len(dfTrain['Concepto'])):
+    for row in range(0, len(dfTrain["Concepto"])):
         try:
-            unique_chars += set(dfTrain['Concepto'][row])
-            unique_chars += set(dfPred['Concepto'][row])
+            unique_chars += set(dfTrain["Concepto"][row])
+            unique_chars += set(dfPred["Concepto"][row])
         except:
-            unique_chars += set(dfTrain['Concepto'][row])
+            unique_chars += set(dfTrain["Concepto"][row])
 
     final = sorted(set(unique_chars))
 
-    for row in range(0, len(dfTrain['Concepto'])):
+    for row in range(0, len(dfTrain["Concepto"])):
         mydict = dict(zip(final, [0] * len(final)))
-        for charact in dfTrain['Concepto'][row]:
+        for charact in dfTrain["Concepto"][row]:
             mydict[charact] += 1
         for charact in final:
             dfTrain.set_value(row, charact, mydict[charact])
 
-    for row in range(0, len(dfPred['Concepto'])):
+    for row in range(0, len(dfPred["Concepto"])):
         mydict = dict(zip(final, [0] * len(final)))
-        for charact in dfPred['Concepto'][row]:
+        for charact in dfPred["Concepto"][row]:
             mydict[charact] += 1
         for charact in final:
             dfPred.set_value(row, charact, mydict[charact])
@@ -64,15 +68,16 @@ def turnColumns(dfTrain, dfPred):
 
 def main():
     args = setup()
+    momentnow = time.strftime("%Y%m%d_%H%M%S")
+    os.mkdir(momentnow)
 
     # loading my dataset and preparing the features (training and prediction)
     dfTrain = loadData(args.input, args.rows_to_skip)
-    dfPred = loadData(args.predictfile, args.rows_to_skip)
+    dfPred = loadData(args.validationfile, args.rows_to_skip)
     dfTrain, dfPred = turnColumns(dfTrain, dfPred)
 
     dataset_train = dfTrain.values
     XTrain = dataset_train[:, 3:]
-    XTrain[:,0] = (XTrain[:,0] - np.mean(XTrain[:,0])) / np.std(XTrain[:,0])
 
     # preparing my prediction set
     dataset_pred = dfPred.values
@@ -84,34 +89,68 @@ def main():
     categories = {}
     for i, row in dfTrain.iterrows():
         YTrain[i, categories.setdefault(row["Classification"], len(categories))] = 1
-    YTrue = [categories[x] for x in dfPred['Classification']]
+    YTrue = [categories[x] for x in dfPred["Classification"]]
     inv_categories = {v: k for k, v in categories.items()}
 
     # RNN model
     model = models.Sequential()
     model.add(Dense(len(XTrain[0]), input_dim=len(XTrain[0]), activation='relu'))
     model.add(Dropout(args.dropout))
-    model.add(Dense(60, activation='relu', bias_regularizer=regularizers.l1(0.01)))
-    model.add(Dense(23, activation='softmax'))
+    model.add(Dense(60, activation="relu", bias_regularizer=regularizers.l1(0.01)))
+    model.add(Dense(23, activation="softmax"))
     model.compile(loss="categorical_crossentropy", optimizer="rmsprop", metrics=["accuracy"])
-    csv_logger = keras.callbacks.CSVLogger('training.log')
-    model.fit(XTrain, YTrain, batch_size=150, epochs=args.epochs, validation_split=args.validation, verbose=2, shuffle=True, callbacks=[csv_logger])
-    print(model.summary())
-    model.save(args.output)
+    csv_logger = keras.callbacks.CSVLogger(momentnow + "/metrics_" + momentnow + ".csv")
+    finalmodel = model.fit(XTrain, YTrain, batch_size=150, epochs=args.epochs, validation_split=args.validation, verbose=2, shuffle=True, callbacks=[csv_logger])
+    model.save(momentnow + "/model_" + momentnow + ".h5")
+    model.to_json()
 
-    # Predicting classes in an unknown dataset
-    YPred = model.predict_classes(Xpred, verbose=1)
+    # plot ACCURACY for training and validation sets
+    plt.figure(figsize=(12,5))
+    plt.subplot(1,2,1)
+    plt.plot(finalmodel.history['acc'])
+    plt.plot(finalmodel.history['val_acc'])
+    plt.title('model accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
 
-    hit = 0
-    total = 0
+    # plot LOSS for training and validation sets
+    plt.subplot(1, 2, 2)
+    plt.plot(finalmodel.history['loss'])
+    plt.plot(finalmodel.history['val_loss'])
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.savefig(momentnow + "/plotloss_" + momentnow)
+    plt.show()
+
+    # predicting classes in an unknown dataset
+    YPred = model.predict_classes(Xpred, verbose=2)
     for i in range(0, len(YPred)):
-        total+=1
+        print(inv_categories[YPred[i]])
+    hit = 0
+    for i in range(0, len(YPred)):
         if YPred[i] == YTrue[i]:
             hit +=1
-    print("accuracy on prediction: ", hit/total)
+    acc_rate = hit/len(YPred)
+    print("accuracy on prediction set: {:.6}%".format(acc_rate*100))
 
-    confmat = confusion_matrix(YTrue, YPred)
-    print(confmat)
+    # creating the confusion matrix
+    YTrue_text = [inv_categories[x] for x in YTrue]
+    YPred_text = [inv_categories[x] for x in YPred]
+    labels = [inv_categories[x] for x in inv_categories]
+
+    confusionmatrix = confusion_matrix(YTrue_text, YPred_text, labels=labels)
+    cm_norm = confusionmatrix.astype("float") / confusionmatrix.sum(axis=1)[:, np.newaxis]
+    cm_norm = np.round(cm_norm,2)
+    sns.set(font_scale=0.9)  # for label size
+    plt.figure()
+    plotconf = sns.heatmap(cm_norm, annot=True, annot_kws={"size": 6}, cbar=False)
+    plotconf.figure.savefig(momentnow + "/confusionmatrix_" + momentnow)
+
+    destinationfile = momentnow + "/code_" + momentnow + '.py'
+    copyfile(__file__, destinationfile)
 
 if __name__ == "__main__":
     sys.exit(main())
