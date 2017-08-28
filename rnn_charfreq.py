@@ -4,8 +4,6 @@ import sys
 import time
 import os
 from shutil import copyfile
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 import numpy as np
 import pandas as pd
@@ -14,6 +12,9 @@ from keras.layers import Dense
 import keras
 from keras.layers import Dropout
 from sklearn.metrics import confusion_matrix
+
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 def setup():
     parser = argparse.ArgumentParser()
