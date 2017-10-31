@@ -8,9 +8,8 @@ from shutil import copyfile
 import numpy as np
 import pandas as pd
 from keras import models, layers, optimizers, regularizers
-from keras.layers import Dense
+from keras.layers import Dense, Dropout
 import keras
-from keras.layers import Dropout
 from sklearn.metrics import confusion_matrix
 
 import seaborn as sns
