@@ -12,6 +12,7 @@ en-core-web-sm==2.1.0
 funcy==1.12
 gast==0.2.2
 gensim==3.7.2
+grpcio==1.26.0
 h5py==2.9.0
 jmespath==0.9.4
 Keras==2.2.4
@@ -35,10 +36,10 @@ smart-open==1.8.2
 spacy==2.1.3
 spacy-langdetect==0.1.1
 srsly==0.0.5
-tensorboard==1.13.1
-tensorflow==1.13.1
-tensorflow-estimator==1.13.0
+tensorboard==2.1.0
+tensorflow==2.1.0
+tensorflow-estimator==2.1.0
 termcolor==1.1.0
 thinc==7.0.4
 wasabi==0.2.1
-Werkzeug==0.15.2
+Werkzeug==0.16.1
